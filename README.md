@@ -1,12 +1,28 @@
 # bds-ipv6fix
 
-LD_PRELOAD shim for [Minecraft Bedrock Dedicated Server](https://github.com/itzg/docker-minecraft-bedrock-server) that fixes a known limitation where IPv4 and IPv6 cannot be configured on the same port.
+LD_PRELOAD shim for [Minecraft Bedrock Dedicated Server](https://github.com/itzg/docker-minecraft-bedrock-server) that fixes a known BDS limitation where IPv4 and IPv6 cannot be configured on the same port.
 
 See the full technical description in [bds-ipv6fix.c](bds-ipv6fix.c).
 
 ## Usage
 
 Consumed by [itzg/docker-minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) via `ENABLE_BDS_V6BIND_FIX=true`. Pre-built binaries for `amd64` and `arm64` are available on the [releases page](../../releases).
+
+To use the shim outside of the itzg image, set `LD_PRELOAD` before launching BDS:
+
+```sh
+export LD_PRELOAD=/path/to/bds-ipv6fix_linux_amd64.so
+exec ./bedrock_server
+```
+
+The itzg image handles this automatically when `ENABLE_BDS_V6BIND_FIX=true` is set:
+
+```sh
+if [ "$ENABLE_BDS_V6BIND_FIX" = "true" ]; then
+  export LD_PRELOAD=/usr/local/lib/bds-ipv6fix.so
+fi
+exec ./bedrock_server
+```
 
 ## Building
 

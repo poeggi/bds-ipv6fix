@@ -31,8 +31,8 @@
  * Linux the default is 0 (dual-stack), meaning the IPv6 socket bound to ::
  * also absorbs IPv4-mapped traffic (::ffff:x.x.x.x). When SERVER_PORT and
  * SERVER_PORT_V6 are set to the same value, BDS tries to bind a second socket
- * (AF_INET, 0.0.0.0) on an already-occupied port, gets EADDRINUSE, and —
- * because it does not handle this error — immediately segfaults. On the rare
+ * (AF_INET, 0.0.0.0) on an already-occupied port, gets EADDRINUSE, and since
+ * it does not handle this error, immediately segfaults. On the rare
  * host where bindv6only=1 the crash does not occur, but same-port
  * configuration is still not the default so the mismatch problem persists.
  *
