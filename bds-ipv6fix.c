@@ -59,25 +59,31 @@
  * -------------
  * - If the .so fails to load: the dynamic linker prints a warning and BDS
  *   starts normally with its original dual-stack behaviour.
- * - If setsockopt fails at runtime: a warning is logged and bind() is still
- *   called, so BDS starts with its original behaviour.
- * - If dlsym("bind") returns NULL (essentially impossible): the shim falls
- *   back to a raw syscall so BDS always gets a working bind().
+ * - If dlsym("setsockopt") returns NULL: a warning is logged at startup and
+ *   IPV6_V6ONLY is never set, so BDS starts with its original behaviour.
+ * - If setsockopt fails at runtime: a warning with errno is logged and bind()
+ *   is still called, so BDS starts with its original behaviour.
+ * - If dlsym("bind") returns NULL (essentially impossible): a warning is
+ *   logged and the shim falls back to a raw syscall so BDS always gets a
+ *   working bind().
  *
  * CONFIGURATION
  * -------------
  * Reads SERVER_PORT_V6 from the environment at startup to identify the target
- * port. If the IPv6 port is changed directly in server.properties
- * (server-portv6) without updating SERVER_PORT_V6, the shim watches the wrong
- * port and IPV6_V6ONLY will not be applied. Always use SERVER_PORT_V6 when
- * this fix is enabled.
+ * port. The value must be a decimal integer in the range 1-65535; an invalid
+ * value is rejected with a warning and the default port is used instead. If
+ * the IPv6 port is changed directly in server.properties (server-portv6)
+ * without updating SERVER_PORT_V6, the shim watches the wrong port and
+ * IPV6_V6ONLY will not be applied. Always use SERVER_PORT_V6 when this fix
+ * is enabled.
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <errno.h>
 #include <netinet/in.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -94,15 +100,28 @@ static void bds_ipv6fix_init(void) {
     real_bind       = dlsym(RTLD_NEXT, "bind");
     real_setsockopt = dlsym(RTLD_NEXT, "setsockopt");
 
+    if (!real_bind)
+        fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve bind — using raw syscall fallback\n");
+    if (!real_setsockopt)
+        fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve setsockopt — IPV6_V6ONLY fix will not apply\n");
+
     const char *pv6 = getenv("SERVER_PORT_V6");
-    if (pv6) target_port = atoi(pv6);
+    if (pv6) {
+        char *end;
+        long val = strtol(pv6, &end, 10);
+        if (*end != '\0' || val < 1 || val > 65535)
+            fprintf(stderr, "[bds-ipv6fix] WARNING: invalid SERVER_PORT_V6=\"%s\", using default %d\n",
+                    pv6, BDS_DEFAULT_PORT_V6);
+        else
+            target_port = (int)val;
+    }
 
     fprintf(stderr, "[bds-ipv6fix] active, SERVER_PORT_V6=%d (default=%d)\n",
             target_port, BDS_DEFAULT_PORT_V6);
 }
 
 int bind(int fd, const struct sockaddr *addr, socklen_t len) {
-    if (addr->sa_family == AF_INET6) {
+    if (addr->sa_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6)) {
         int port = (int)ntohs(((const struct sockaddr_in6 *)addr)->sin6_port);
         if (real_setsockopt && (port == BDS_DEFAULT_PORT_V6 || port == target_port)) {
             int one = 1;
@@ -110,7 +129,8 @@ int bind(int fd, const struct sockaddr *addr, socklen_t len) {
             if (rc == 0)
                 fprintf(stderr, "[bds-ipv6fix] IPV6_V6ONLY=1 set on fd=%d port=%d\n", fd, port);
             else
-                fprintf(stderr, "[bds-ipv6fix] WARNING: failed to set IPV6_V6ONLY on fd=%d port=%d\n", fd, port);
+                fprintf(stderr, "[bds-ipv6fix] WARNING: setsockopt(IPV6_V6ONLY) failed on fd=%d port=%d: %s\n",
+                        fd, port, strerror(errno));
         }
     }
     if (real_bind)
