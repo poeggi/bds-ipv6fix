@@ -21,3 +21,7 @@ aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_arm64.so bds-ipv6fi
 ## License
 
 MIT
+
+## Authors
+
+[poeggi](https://github.com/poeggi) with [Claude](https://claude.ai) (Anthropic)
