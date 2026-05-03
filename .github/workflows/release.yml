@@ -26,6 +26,10 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          body: |
+            Built from commit ${{ github.sha }}.
+
+            See [bds-ipv6fix.c](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/bds-ipv6fix.c) for the full technical description.
           files: |
             bds-ipv6fix_linux_amd64.so
             bds-ipv6fix_linux_arm64.so
