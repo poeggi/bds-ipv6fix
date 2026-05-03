@@ -3,6 +3,7 @@ name: Beta Build
 on:
   push:
     branches: ['main']
+    paths: ['bds-ipv6fix.c']
 
 jobs:
   beta:
@@ -14,7 +15,7 @@ jobs:
 
       - name: Get timestamp
         id: ts
-        run: echo "value=$(date -u +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+        run: echo "value=$(date -u +%Y-%m-%d_%H-%M-%S)" >> $GITHUB_OUTPUT
 
       - name: Install build dependencies
         run: |
