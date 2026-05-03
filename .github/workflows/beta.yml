@@ -12,6 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Get timestamp
+        id: ts
+        run: echo "value=$(date -u +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -26,13 +30,12 @@ jobs:
       - name: Create beta release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: beta-${{ github.run_id }}-${{ github.sha }}
-          name: Beta ${{ github.run_id }} (${{ github.sha }})
+          tag_name: beta-${{ steps.ts.outputs.value }}
+          name: Beta ${{ steps.ts.outputs.value }}
           prerelease: true
           body: |
             Automated beta build from commit ${{ github.sha }}
             Branch: ${{ github.ref_name }}
-            Built: ${{ github.event.head_commit.timestamp }}
           files: |
             bds-ipv6fix_linux_amd64.so
             bds-ipv6fix_linux_arm64.so
