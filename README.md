@@ -8,7 +8,7 @@ See the full technical description in [bds-ipv6fix.c](bds-ipv6fix.c).
 
 Consumed by [itzg/docker-minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) via `ENABLE_BDS_V6BIND_FIX=true`. Pre-built binaries for `x86_64` and `aarch64` are available on the [releases page](../../releases).
 
-The itzg image downloads the architecture-appropriate binary at image build time (using Docker's `TARGETARCH`) and installs it as `/usr/local/lib/bds-ipv6fix.so`. Setting `ENABLE_BDS_V6BIND_FIX=true` sets `LD_PRELOAD` to that path before BDS starts.
+The itzg image downloads the latest release at container startup when `ENABLE_BDS_V6BIND_FIX=true` is set, using `uname -m` to select the correct binary.
 
 To use the shim outside of the itzg image:
 
