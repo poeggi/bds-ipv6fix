@@ -6,21 +6,16 @@ See the full technical description in [bds-ipv6fix.c](bds-ipv6fix.c).
 
 ## Usage
 
-Consumed by [itzg/docker-minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) via `ENABLE_BDS_V6BIND_FIX=true`. Pre-built binaries for `amd64` and `arm64` are available on the [releases page](../../releases).
+Consumed by [itzg/docker-minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) via `ENABLE_BDS_V6BIND_FIX=true`. Pre-built binaries for `x86_64` and `aarch64` are available on the [releases page](../../releases).
 
-To use the shim outside of the itzg image, set `LD_PRELOAD` before launching BDS:
+The itzg image downloads the architecture-appropriate binary at image build time (using Docker's `TARGETARCH`) and installs it as `/usr/local/lib/bds-ipv6fix.so`. Setting `ENABLE_BDS_V6BIND_FIX=true` sets `LD_PRELOAD` to that path before BDS starts.
 
-```sh
-export LD_PRELOAD=/path/to/bds-ipv6fix_linux_amd64.so
-exec ./bedrock_server
-```
-
-The itzg image handles this automatically when `ENABLE_BDS_V6BIND_FIX=true` is set:
+To use the shim outside of the itzg image:
 
 ```sh
-if [ "$ENABLE_BDS_V6BIND_FIX" = "true" ]; then
-  export LD_PRELOAD=/usr/local/lib/bds-ipv6fix.so
-fi
+curl -fsSL "https://github.com/poeggi/bds-ipv6fix/releases/latest/download/bds-ipv6fix_linux_$(uname -m).so" \
+  -o bds-ipv6fix.so
+export LD_PRELOAD=$(pwd)/bds-ipv6fix.so
 exec ./bedrock_server
 ```
 
@@ -28,10 +23,10 @@ exec ./bedrock_server
 
 ```sh
 # amd64
-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_amd64.so bds-ipv6fix.c -ldl
+gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
 
-# arm64 (cross-compile)
-aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_arm64.so bds-ipv6fix.c -ldl
+# aarch64 (cross-compile)
+aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
 ```
 
 ## Dear Mojang/Microsoft

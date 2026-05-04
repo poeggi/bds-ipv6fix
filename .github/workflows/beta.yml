@@ -23,10 +23,10 @@ jobs:
           sudo apt-get install -y gcc libc6-dev gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Build amd64
-        run: gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_amd64.so bds-ipv6fix.c -ldl
+        run: gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
 
       - name: Build arm64
-        run: aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_arm64.so bds-ipv6fix.c -ldl
+        run: aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
 
       - name: Create beta release
         uses: softprops/action-gh-release@v2
@@ -38,5 +38,5 @@ jobs:
             Automated beta build from commit ${{ github.sha }}
             Branch: ${{ github.ref_name }}
           files: |
-            bds-ipv6fix_linux_amd64.so
-            bds-ipv6fix_linux_arm64.so
+            bds-ipv6fix_linux_x86_64.so
+            bds-ipv6fix_linux_aarch64.so

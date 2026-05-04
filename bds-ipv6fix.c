@@ -3,79 +3,51 @@
  *
  * PURPOSE
  * -------
- * Allows SERVER_PORT and SERVER_PORT_V6 to be set to the same port number so
- * that both IPv4 and IPv6 clients can reach the server on a single port.
+ * Allows SERVER_PORT and SERVER_PORT_V6 to use the same port so both IPv4
+ * and IPv6 clients can reach the server without port mismatch.
  *
  * USER-VISIBLE PROBLEM
  * --------------------
- * When a server is accessed via a hostname that resolves to both an IPv4 and
- * an IPv6 address, some players see "Unable to connect to world" while others
- * on the same network connect fine. The root cause is that BDS listens for
- * IPv4 and IPv6 on different ports by default (19132 and 19133). The Bedrock
- * client does not implement Happy Eyeballs (RFC 8305): it simply connects on
- * whichever address family its DNS lookup returns first, with no fallback.
- * Players whose devices resolve the hostname to IPv6 try port 19132 over IPv6,
- * find nothing listening there, and time out. Having both address families on
- * the same port eliminates the mismatch entirely.
+ * BDS defaults to IPv4 on 19132 and IPv6 on 19133. Bedrock clients don't
+ * implement Happy Eyeballs (RFC 8305): they connect on whichever address
+ * family DNS returns first with no fallback. Players whose devices resolve
+ * the hostname to IPv6 try port 19132 over IPv6, find nothing, and time out.
  *
  * ROOT CAUSE IN BDS
  * -----------------
- * BDS opens its IPv6 UDP socket without ever calling setsockopt(IPV6_V6ONLY).
- * Confirmed via strace:
+ * BDS opens its IPv6 socket without calling setsockopt(IPV6_V6ONLY):
  *
  *   socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP) = 8
  *   bind(8, {sa_family=AF_INET6, sin6_port=htons(19133), "::"}, 28) = 0
  *
- * No setsockopt call appears between socket() and bind(). The socket therefore
- * inherits the host kernel default, controlled by net.ipv6.bindv6only. On
- * Linux the default is 0 (dual-stack), meaning the IPv6 socket bound to ::
- * also absorbs IPv4-mapped traffic (::ffff:x.x.x.x). When SERVER_PORT and
- * SERVER_PORT_V6 are set to the same value, BDS tries to bind a second socket
- * (AF_INET, 0.0.0.0) on an already-occupied port, gets EADDRINUSE, and since
- * it does not handle this error, immediately segfaults. On the rare
- * host where bindv6only=1 the crash does not occur, but same-port
- * configuration is still not the default so the mismatch problem persists.
+ * The socket inherits net.ipv6.bindv6only (0 on most Linux systems), making
+ * it dual-stack. When both ports are equal, the subsequent AF_INET bind on
+ * the same port gets EADDRINUSE and BDS segfaults.
  *
  * THE FIX
  * -------
- * This shim is loaded via LD_PRELOAD before BDS starts. It intercepts bind()
- * and, when it sees an AF_INET6 socket being bound to the BDS IPv6 port
- * (SERVER_PORT_V6 or the hardcoded default 19133), calls
- * setsockopt(IPV6_V6ONLY, 1) on that socket descriptor before passing the
- * bind() call through to the kernel. This makes the IPv6 socket strictly
- * IPv6-only, so the subsequent AF_INET bind on the same port number succeeds
- * without conflict. All other IPv6 sockets are left untouched.
+ * Intercepts bind() via LD_PRELOAD. On any AF_INET6 bind to the target port,
+ * calls setsockopt(IPV6_V6ONLY, 1) first, making the socket IPv6-only so the
+ * subsequent AF_INET bind on the same port succeeds.
  *
  * ARM64 / BOX64
  * -------------
- * On ARM64, BDS (an x86_64 binary) runs under box64 emulation. box64 is a
- * native ARM64 process that translates x86_64 instructions and forwards libc
- * calls to the host ARM64 libc. Injecting an ARM64 build of this shim via
- * LD_PRELOAD intercepts those ARM64 libc bind() calls, which is exactly where
- * the fix needs to apply. A separate ARM64 build of the shim is provided for
- * this purpose.
+ * On ARM64, BDS (x86_64) runs under box64, which forwards libc calls to the
+ * host ARM64 libc. An ARM64 build of this shim intercepts those calls.
  *
  * FAILURE MODES
  * -------------
- * - If the .so fails to load: the dynamic linker prints a warning and BDS
- *   starts normally with its original dual-stack behaviour.
- * - If dlsym("setsockopt") returns NULL: a warning is logged at startup and
- *   IPV6_V6ONLY is never set, so BDS starts with its original behaviour.
- * - If setsockopt fails at runtime: a warning with errno is logged and bind()
- *   is still called, so BDS starts with its original behaviour.
- * - If dlsym("bind") returns NULL (essentially impossible): a warning is
- *   logged and the shim falls back to a raw syscall so BDS always gets a
- *   working bind().
+ * - .so fails to load: dynamic linker warns, BDS starts with original behaviour.
+ * - dlsym("setsockopt") returns NULL: warned at startup, IPV6_V6ONLY not set.
+ * - setsockopt fails at runtime: warning with errno logged, bind() still called.
+ * - dlsym("bind") returns NULL: warned, raw syscall fallback used.
  *
  * CONFIGURATION
  * -------------
- * Reads SERVER_PORT_V6 from the environment at startup to identify the target
- * port. The value must be a decimal integer in the range 1-65535; an invalid
- * value is rejected with a warning and the default port is used instead. If
- * the IPv6 port is changed directly in server.properties (server-portv6)
- * without updating SERVER_PORT_V6, the shim watches the wrong port and
- * IPV6_V6ONLY will not be applied. Always use SERVER_PORT_V6 when this fix
- * is enabled.
+ * Reads SERVER_PORT_V6 from the environment at startup. Must be a decimal
+ * integer in 1-65535; invalid values are warned and the default (19133) is
+ * used. Always set SERVER_PORT_V6 via environment — not server.properties —
+ * when this shim is active.
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
