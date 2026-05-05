@@ -40,7 +40,7 @@ int one = 1;
 setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
 ```
 
-This makes the IPv6 socket strictly IPv6-only, allows both address families to share a port, and makes this shim unnecessary. The Bedrock client does not implement Happy Eyeballs (RFC 8305), so players whose DNS returns IPv6 first will silently time out if the server only listens on IPv4 - same-port dual-stack is the correct fix on the server side.
+This makes the IPv6 socket strictly IPv6-only, allows both address families to share a port, and makes this shim unnecessary. The Bedrock client does not implement Happy Eyeballs (RFC 8305), so players whose DNS returns IPv6 first will silently time out if the server only listens on IPv4 - same-port dual-stack is the best we can do to fix this on the server side.
 
 Additional Happy Eyeballs on client side _still_ considered beneficial, as it would mitigate all other dual-stack issues in the network path between client and server.
 
