@@ -2,6 +2,14 @@
 
 LD_PRELOAD shim for [Minecraft Bedrock Dedicated Server](https://github.com/itzg/docker-minecraft-bedrock-server) that fixes a known BDS limitation where IPv4 and IPv6 cannot be configured on the same port.
 
+When the fix is active and working, you will see a line like this in your server log:
+
+```
+[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=... port=...
+```
+
+The shim is safe to leave in place across BDS upgrades. If a future BDS version fixes this issue on its own, the shim detects it automatically and logs a `NOTE: ... patch is now redundant` message — it will not interfere with the server.
+
 See the full technical description in [bds-ipv6fix.c](bds-ipv6fix.c).
 
 ## Usage
@@ -40,7 +48,7 @@ int one = 1;
 setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
 ```
 
-This makes the IPv6 socket strictly IPv6-only, allows both address families to share a port, and makes this shim unnecessary. The shim detects whether BDS applies this call itself — before or after `bind()` — and logs a redundancy notice if so, making it safe to leave loaded across BDS upgrades. The Bedrock client does not implement Happy Eyeballs (RFC 8305), so players whose DNS returns IPv6 first will silently time out if the server only listens on IPv4 - same-port dual-stack is the best we can do to fix this on the server side.
+This makes the IPv6 socket strictly IPv6-only, allows both address families to share a port, and makes this shim unnecessary. The Bedrock client does not implement Happy Eyeballs (RFC 8305), so players whose DNS returns IPv6 first will silently time out if the server only listens on IPv4 - same-port dual-stack is the best we can do to fix this on the server side.
 
 Additional Happy Eyeballs on client side _still_ considered beneficial, as it would mitigate all other dual-stack issues in the network path between client and server.
 
