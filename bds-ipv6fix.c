@@ -71,9 +71,7 @@
 static int (*real_bind)(int, const struct sockaddr *, socklen_t)       = NULL;
 static int (*real_setsockopt)(int, int, int, const void *, socklen_t)  = NULL;
 
-static int target_port      = BDS_DEFAULT_PORT_V6;
-static int target_ipv6_fd   = -1;
-static int target_ipv6_port = -1;
+static int target_port = BDS_DEFAULT_PORT_V6;
 
 __attribute__((constructor))
 static void bds_ipv6fix_init(void) {
@@ -101,11 +99,17 @@ static void bds_ipv6fix_init(void) {
 }
 
 int setsockopt(int fd, int level, int optname, const void *optval, socklen_t optlen) {
-    if (fd == target_ipv6_fd &&
-        level == IPPROTO_IPV6 && optname == IPV6_V6ONLY &&
+    if (level == IPPROTO_IPV6 && optname == IPV6_V6ONLY &&
         optlen >= (socklen_t)sizeof(int) && *(const int *)optval) {
-        fprintf(stderr, "[bds-ipv6fix] NOTE: BDS set IPV6_V6ONLY on fd=%d port=%d"
-                " — patch is now redundant\n", fd, target_ipv6_port);
+        struct sockaddr_in6 sa;
+        socklen_t salen = sizeof(sa);
+        if (getsockname(fd, (struct sockaddr *)&sa, &salen) == 0 &&
+            sa.sin6_family == AF_INET6) {
+            int port = (int)ntohs(sa.sin6_port);
+            if (port == BDS_DEFAULT_PORT_V6 || port == target_port)
+                fprintf(stderr, "[bds-ipv6fix] NOTE: BDS set IPV6_V6ONLY on fd=%d port=%d"
+                        " — patch is now redundant\n", fd, port);
+        }
     }
     return real_setsockopt ? real_setsockopt(fd, level, optname, optval, optlen)
                            : (int)syscall(SYS_setsockopt, fd, level, optname, optval, optlen);
@@ -115,8 +119,6 @@ int bind(int fd, const struct sockaddr *addr, socklen_t len) {
     if (addr->sa_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6)) {
         int port = (int)ntohs(((const struct sockaddr_in6 *)addr)->sin6_port);
         if (port == BDS_DEFAULT_PORT_V6 || port == target_port) {
-            target_ipv6_fd   = fd;
-            target_ipv6_port = port;
             int cur = 0;
             socklen_t curlen = sizeof(cur);
             if (getsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &cur, &curlen) == 0 && cur) {
