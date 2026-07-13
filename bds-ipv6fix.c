@@ -33,8 +33,8 @@
  * patch is redundant or calls setsockopt(IPV6_V6ONLY, 1) to apply the fix.
  *
  * The setsockopt() intercept catches the case where BDS calls setsockopt after
- * bind — if it sets IPV6_V6ONLY=1 on the tracked target fd, the patch is
- * reported as redundant.
+ * bind — if it sets IPV6_V6ONLY=1 on a bound socket at the target port, the
+ * patch is reported as redundant.
  *
  * ARM64 / BOX64
  * -------------
@@ -44,7 +44,7 @@
  * FAILURE MODES
  * -------------
  * - .so fails to load: dynamic linker warns, BDS starts with original behaviour.
- * - dlsym("setsockopt") returns NULL: warned at startup, IPV6_V6ONLY not set.
+ * - dlsym("setsockopt") returns NULL: warned at startup, raw syscall fallback used.
  * - setsockopt fails at runtime: warning with errno logged, bind() still called.
  * - dlsym("bind") returns NULL: warned, raw syscall fallback used.
  *
@@ -68,6 +68,10 @@
 
 #define BDS_DEFAULT_PORT_V6 19133
 
+#ifndef BDS_IPV6FIX_VERSION
+#define BDS_IPV6FIX_VERSION "dev"
+#endif
+
 static int (*real_bind)(int, const struct sockaddr *, socklen_t)       = NULL;
 static int (*real_setsockopt)(int, int, int, const void *, socklen_t)  = NULL;
 
@@ -81,7 +85,7 @@ static void bds_ipv6fix_init(void) {
     if (!real_bind)
         fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve bind — using raw syscall fallback\n");
     if (!real_setsockopt)
-        fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve setsockopt — IPV6_V6ONLY fix will not apply\n");
+        fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve setsockopt — using raw syscall fallback\n");
 
     const char *pv6 = getenv("SERVER_PORT_V6");
     if (pv6) {
@@ -94,21 +98,26 @@ static void bds_ipv6fix_init(void) {
             target_port = (int)val;
     }
 
-    fprintf(stderr, "[bds-ipv6fix] active, SERVER_PORT_V6=%d (default=%d)\n",
+    fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active, SERVER_PORT_V6=%d (default=%d)\n",
             target_port, BDS_DEFAULT_PORT_V6);
 }
 
 int setsockopt(int fd, int level, int optname, const void *optval, socklen_t optlen) {
-    if (level == IPPROTO_IPV6 && optname == IPV6_V6ONLY &&
-        optlen >= (socklen_t)sizeof(int) && *(const int *)optval) {
-        struct sockaddr_in6 sa;
-        socklen_t salen = sizeof(sa);
-        if (getsockname(fd, (struct sockaddr *)&sa, &salen) == 0 &&
-            sa.sin6_family == AF_INET6) {
-            int port = (int)ntohs(sa.sin6_port);
-            if (port == BDS_DEFAULT_PORT_V6 || port == target_port)
-                fprintf(stderr, "[bds-ipv6fix] NOTE: BDS set IPV6_V6ONLY on fd=%d port=%d"
-                        " — patch is now redundant\n", fd, port);
+    if (level == IPPROTO_IPV6 && optname == IPV6_V6ONLY && optlen >= (socklen_t)sizeof(int)) {
+        int v = 0;
+        memcpy(&v, optval, sizeof(v));
+        if (v) {
+            int saved = errno;
+            struct sockaddr_in6 sa;
+            socklen_t salen = sizeof(sa);
+            if (getsockname(fd, (struct sockaddr *)&sa, &salen) == 0 &&
+                sa.sin6_family == AF_INET6) {
+                int port = (int)ntohs(sa.sin6_port);
+                if (port == target_port)
+                    fprintf(stderr, "[bds-ipv6fix] NOTE: BDS set IPV6_V6ONLY on fd=%d port=%d"
+                            " — patch is now redundant\n", fd, port);
+            }
+            errno = saved;
         }
     }
     return real_setsockopt ? real_setsockopt(fd, level, optname, optval, optlen)
@@ -116,18 +125,28 @@ int setsockopt(int fd, int level, int optname, const void *optval, socklen_t opt
 }
 
 int bind(int fd, const struct sockaddr *addr, socklen_t len) {
-    if (addr->sa_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6)) {
+    if (addr && addr->sa_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6)) {
         int port = (int)ntohs(((const struct sockaddr_in6 *)addr)->sin6_port);
-        if (port == BDS_DEFAULT_PORT_V6 || port == target_port) {
+        if (port == target_port) {
+            int saved = errno;
             int cur = 0;
             socklen_t curlen = sizeof(cur);
-            if (getsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &cur, &curlen) == 0 && cur) {
+            int already = (getsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &cur, &curlen) == 0 && cur);
+            errno = saved;
+            if (already) {
                 fprintf(stderr, "[bds-ipv6fix] NOTE: IPV6_V6ONLY already set on fd=%d port=%d"
                         " — BDS has fixed this natively; patch is now redundant\n", fd, port);
             } else if (real_setsockopt) {
                 int one = 1;
                 int rc = real_setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
                 if (rc == 0)
+                    fprintf(stderr, "[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=%d port=%d\n", fd, port);
+                else
+                    fprintf(stderr, "[bds-ipv6fix] WARNING: setsockopt(IPV6_V6ONLY) failed on fd=%d port=%d: %s\n",
+                            fd, port, strerror(errno));
+            } else {
+                int one = 1;
+                if (syscall(SYS_setsockopt, fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one)) == 0)
                     fprintf(stderr, "[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=%d port=%d\n", fd, port);
                 else
                     fprintf(stderr, "[bds-ipv6fix] WARNING: setsockopt(IPV6_V6ONLY) failed on fd=%d port=%d: %s\n",
