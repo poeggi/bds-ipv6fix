@@ -8,7 +8,7 @@ When the fix is active and working, you will see a line like this in your server
 [bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=... port=...
 ```
 
-The shim is safe to leave in place across BDS upgrades. If a future BDS version fixes this issue on its own, the shim detects it automatically and logs a `NOTE: ... patch is now redundant` message — it will not interfere with the server.
+The shim is safe to leave in place across BDS upgrades. If a future BDS version fixes this issue on its own, the shim detects it automatically and logs a `NOTE: ... patch is now redundant` message - it will not interfere with the server.
 
 See the full technical description in [bds-ipv6fix.c](bds-ipv6fix.c).
 

@@ -23,10 +23,16 @@ jobs:
           sudo apt-get install -y gcc libc6-dev gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Build amd64
-        run: gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
+        run: gcc -shared -fPIC -O2 -DBDS_IPV6FIX_VERSION='"beta-${{ steps.ts.outputs.value }}"' -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
 
       - name: Build arm64
-        run: aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
+        run: aarch64-linux-gnu-gcc -shared -fPIC -O2 -DBDS_IPV6FIX_VERSION='"beta-${{ steps.ts.outputs.value }}"' -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
+
+      - name: Test
+        run: |
+          gcc -O2 -o test test.c
+          if ./test; then echo "test must fail without the shim"; exit 1; fi
+          LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test
 
       - name: Create beta release
         uses: softprops/action-gh-release@v2
