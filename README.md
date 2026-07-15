@@ -37,6 +37,18 @@ gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
 aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
 ```
 
+## Testing
+
+Every CI build is gated on a functional test: [test.c](test.c) reproduces the
+BDS dual-bind failure (must fail without the shim) and verifies the shim fixes
+it, for both architectures (aarch64 runs under qemu-user). To run it locally:
+
+```sh
+gcc -O2 -o test test.c
+./test                                             # must fail: reproduces the bug
+LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test # must pass: shim fixes it
+```
+
 ## Dear Mojang/Microsoft
 
 This shim exists because `bedrock_server` binds its IPv6 socket without first calling `setsockopt(IPV6_V6ONLY, 1)`. The socket therefore inherits the host kernel's `net.ipv6.bindv6only` default (0 on most Linux systems), which means the IPv6 socket absorbs IPv4-mapped traffic as well. When a user sets `SERVER_PORT` and `SERVER_PORT_V6` to the same value, the subsequent IPv4 bind fails with `EADDRINUSE` and BDS segfaults.
