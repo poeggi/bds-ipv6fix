@@ -23,10 +23,22 @@ jobs:
           sudo apt-get install -y gcc libc6-dev gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user
 
       - name: Build amd64
-        run: gcc -shared -fPIC -O2 -DBDS_IPV6FIX_VERSION='"beta-${{ steps.ts.outputs.value }}"' -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
+        run: gcc -shared -fPIC -O2 -DBDS_IPV6FIX_VERSION='"beta-${{ steps.ts.outputs.value }}"' -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c
 
       - name: Build arm64
-        run: aarch64-linux-gnu-gcc -shared -fPIC -O2 -DBDS_IPV6FIX_VERSION='"beta-${{ steps.ts.outputs.value }}"' -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
+        run: aarch64-linux-gnu-gcc -shared -fPIC -O2 -DBDS_IPV6FIX_VERSION='"beta-${{ steps.ts.outputs.value }}"' -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c
+
+      - name: Check required glibc symbol versions
+        run: |
+          for f in bds-ipv6fix_linux_x86_64.so bds-ipv6fix_linux_aarch64.so; do
+            echo "== $f"
+            readelf -V -W "$f" | grep -oE 'Name: GLIBC_[^ ]+' | sed 's/Name: //' | sort -uV > versions.txt
+            cat versions.txt
+            if [ ! -s versions.txt ]; then echo "no GLIBC version needs found in $f"; exit 1; fi
+            if grep -vE '^GLIBC_2\.([0-9]|1[0-7])(\.[0-9]+)?$' versions.txt; then
+              echo "$f requires a glibc symbol newer than GLIBC_2.17"; exit 1
+            fi
+          done
 
       - name: Test amd64
         run: |
@@ -55,6 +67,23 @@ jobs:
           cat out.log
           grep -q "RakNet-only fix, leaving it untouched" out.log
           grep -q "PASS: dual-stack TCP socket" out.log
+
+      - name: Test amd64 on Debian 12 (glibc 2.36)
+        run: |
+          docker run --rm --network host -v "$PWD:/w:ro" -w /tmp debian:12 sh -ec '
+            apt-get update -qq >/dev/null && apt-get install -y -qq gcc libc6-dev >/dev/null
+            ldd --version | head -1
+            gcc -O2 -o test-old /w/test.c
+            if ./test-old; then echo "test must fail without the shim"; exit 1; fi
+            LD_PRELOAD=/w/bds-ipv6fix_linux_x86_64.so ./test-old >udp.log 2>&1 || { cat udp.log; exit 1; }
+            cat udp.log
+            grep -q "Fixing IPv6: IPV6_V6ONLY=1" udp.log
+            LD_PRELOAD=/w/bds-ipv6fix_linux_x86_64.so ./test-old native-fix >native.log 2>&1 || { cat native.log; exit 1; }
+            cat native.log
+            grep -q "patch is now redundant" native.log
+            LD_PRELOAD=/w/bds-ipv6fix_linux_x86_64.so ./test-old nethernet >tcp.log 2>&1 || { cat tcp.log; exit 1; }
+            cat tcp.log
+            grep -q "RakNet-only fix, leaving it untouched" tcp.log'
 
       - name: Create beta release
         uses: softprops/action-gh-release@v2

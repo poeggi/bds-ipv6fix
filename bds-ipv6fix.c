@@ -52,13 +52,21 @@
  * On ARM64, BDS (x86_64) runs under box64, which forwards libc calls to the
  * host ARM64 libc. An ARM64 build of this shim intercepts those calls.
  *
+ * PORTABILITY
+ * -----------
+ * The shim replaces the libc bind symbol, so its own bind() must not call
+ * bind again; it goes through the raw syscall interface instead of dlsym
+ * (which would need GLIBC_2.34). The port is parsed by hand because strtol
+ * maps to a GLIBC_2.38 symbol on newer glibc. The shim therefore needs no
+ * libc symbol newer than GLIBC_2.17, and one build per architecture loads
+ * on any glibc from 2.17 on. CI checks the required symbol versions and runs
+ * the x86_64 build on Debian 12.
+ *
  * FAILURE MODES
  * -------------
  * - .so fails to load: dynamic linker warns, BDS starts with original behaviour.
- * - dlsym("setsockopt") returns NULL: warned at startup, raw syscall fallback used.
  * - getsockopt(SO_TYPE) fails: warned, socket left untouched, bind() still called.
  * - setsockopt fails at runtime: warning with errno logged, bind() still called.
- * - dlsym("bind") returns NULL: warned, raw syscall fallback used.
  *
  * CONFIGURATION
  * -------------
@@ -67,8 +75,7 @@
  * used. Always set SERVER_PORT_V6 via environment - not server.properties -
  * when this shim is active.
  */
-#define _GNU_SOURCE
-#include <dlfcn.h>
+#define _DEFAULT_SOURCE
 #include <errno.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -84,30 +91,34 @@
 #define BDS_IPV6FIX_VERSION "dev"
 #endif
 
-static int (*real_bind)(int, const struct sockaddr *, socklen_t)       = NULL;
-static int (*real_setsockopt)(int, int, int, const void *, socklen_t)  = NULL;
-
 static int target_port = BDS_DEFAULT_PORT_V6;
+
+/* Decimal port in 1-65535, or -1. Hand-rolled because strtol maps to a
+ * versioned symbol on newer glibc and would tie the build to that glibc. */
+static int parse_port(const char *s) {
+    long val = 0;
+    if (*s == '\0')
+        return -1;
+    for (; *s; s++) {
+        if (*s < '0' || *s > '9')
+            return -1;
+        val = val * 10 + (*s - '0');
+        if (val > 65535)
+            return -1;
+    }
+    return val >= 1 ? (int)val : -1;
+}
 
 __attribute__((constructor))
 static void bds_ipv6fix_init(void) {
-    real_bind       = dlsym(RTLD_NEXT, "bind");
-    real_setsockopt = dlsym(RTLD_NEXT, "setsockopt");
-
-    if (!real_bind)
-        fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve bind - using raw syscall fallback\n");
-    if (!real_setsockopt)
-        fprintf(stderr, "[bds-ipv6fix] WARNING: could not resolve setsockopt - using raw syscall fallback\n");
-
     const char *pv6 = getenv("SERVER_PORT_V6");
     if (pv6) {
-        char *end;
-        long val = strtol(pv6, &end, 10);
-        if (*end != '\0' || val < 1 || val > 65535)
+        int val = parse_port(pv6);
+        if (val < 0)
             fprintf(stderr, "[bds-ipv6fix] WARNING: invalid SERVER_PORT_V6=\"%s\", using default %d\n",
                     pv6, BDS_DEFAULT_PORT_V6);
         else
-            target_port = (int)val;
+            target_port = val;
     }
 
     fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active, SERVER_PORT_V6=%d (default=%d)\n",
@@ -149,9 +160,7 @@ int bind(int fd, const struct sockaddr *addr, socklen_t len) {
                             " - BDS has fixed this natively; patch is now redundant\n", fd, port);
                 } else {
                     int one = 1;
-                    int rc = real_setsockopt
-                           ? real_setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one))
-                           : (int)syscall(SYS_setsockopt, fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
+                    int rc = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
                     if (rc == 0)
                         fprintf(stderr, "[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=%d port=%d\n", fd, port);
                     else
@@ -163,7 +172,5 @@ int bind(int fd, const struct sockaddr *addr, socklen_t len) {
             }
         }
     }
-    if (real_bind)
-        return real_bind(fd, addr, len);
     return (int)syscall(SYS_bind, fd, addr, len);
 }

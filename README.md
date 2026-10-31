@@ -44,11 +44,15 @@ exec ./bedrock_server
 
 ```sh
 # amd64
-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c -ldl
+gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_x86_64.so bds-ipv6fix.c
 
 # aarch64 (cross-compile)
-aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c -ldl
+aarch64-linux-gnu-gcc -shared -fPIC -O2 -o bds-ipv6fix_linux_aarch64.so bds-ipv6fix.c
 ```
+
+The shim needs no glibc symbol newer than GLIBC_2.17, so one build per
+architecture loads on any distribution with glibc 2.17 (2012) or newer. CI
+checks the required symbol versions and runs the x86_64 build on Debian 12.
 
 ## Testing
 
