@@ -38,6 +38,11 @@ jobs:
           LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test native-fix >out.log 2>&1
           cat out.log
           grep -q "patch is now redundant" out.log
+          ./test nethernet
+          LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test nethernet >out.log 2>&1
+          cat out.log
+          grep -q "RakNet-only fix, leaving it untouched" out.log
+          grep -q "PASS: dual-stack TCP socket" out.log
 
       - name: Test arm64 (qemu)
         run: |
@@ -46,6 +51,10 @@ jobs:
           qemu-aarch64 -L /usr/aarch64-linux-gnu -E LD_PRELOAD=$PWD/bds-ipv6fix_linux_aarch64.so ./test-aarch64 >out.log 2>&1
           cat out.log
           grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
+          qemu-aarch64 -L /usr/aarch64-linux-gnu -E LD_PRELOAD=$PWD/bds-ipv6fix_linux_aarch64.so ./test-aarch64 nethernet >out.log 2>&1
+          cat out.log
+          grep -q "RakNet-only fix, leaving it untouched" out.log
+          grep -q "PASS: dual-stack TCP socket" out.log
 
       - name: Create beta release
         uses: softprops/action-gh-release@v2

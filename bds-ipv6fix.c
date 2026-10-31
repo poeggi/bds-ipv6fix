@@ -15,7 +15,8 @@
  *
  * ROOT CAUSE IN BDS
  * -----------------
- * BDS opens its IPv6 socket without calling setsockopt(IPV6_V6ONLY):
+ * With transport=raknet, BDS opens its IPv6 socket without calling
+ * setsockopt(IPV6_V6ONLY):
  *
  *   socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP) = 8
  *   bind(8, {sa_family=AF_INET6, sin6_port=htons(19133), "::"}, 28) = 0
@@ -28,11 +29,23 @@
  * -------
  * Intercepts bind() via LD_PRELOAD.
  *
- * On any AF_INET6 bind to the target port, checks whether IPV6_V6ONLY is
- * already set (BDS natively fixed it before bind), then either logs that the
- * patch is redundant or calls setsockopt(IPV6_V6ONLY, 1) to apply the fix.
- * Linux only allows setting IPV6_V6ONLY before bind, so this check is
- * guaranteed to catch a future native BDS fix.
+ * On any AF_INET6 UDP (SOCK_DGRAM) bind to the target port, checks whether
+ * IPV6_V6ONLY is already set (BDS natively fixed it before bind), then either
+ * logs that the patch is redundant or calls setsockopt(IPV6_V6ONLY, 1) to
+ * apply the fix. Linux only allows setting IPV6_V6ONLY before bind, so this
+ * check is guaranteed to catch a future native BDS fix.
+ *
+ * Sockets of any other type on the target port are logged and left untouched.
+ *
+ * NETHERNET
+ * ---------
+ * BDS 1.26.50 and later defaults to transport=nethernet. NetherNet signaling
+ * uses one dual-stack TCP socket on server-port for both address families and
+ * ignores server-portv6, so same-port dual-stack works natively there. The
+ * fix only matters for transport=raknet. The SOCK_DGRAM guard keeps the shim
+ * away from the NetherNet TCP socket: forcing IPV6_V6ONLY on it would lock
+ * out IPv4 clients. The shim can therefore stay enabled on a NetherNet
+ * server, even with SERVER_PORT_V6 equal to SERVER_PORT.
  *
  * ARM64 / BOX64
  * -------------
@@ -43,6 +56,7 @@
  * -------------
  * - .so fails to load: dynamic linker warns, BDS starts with original behaviour.
  * - dlsym("setsockopt") returns NULL: warned at startup, raw syscall fallback used.
+ * - getsockopt(SO_TYPE) fails: warned, socket left untouched, bind() still called.
  * - setsockopt fails at runtime: warning with errno logged, bind() still called.
  * - dlsym("bind") returns NULL: warned, raw syscall fallback used.
  *
@@ -98,30 +112,54 @@ static void bds_ipv6fix_init(void) {
 
     fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active, SERVER_PORT_V6=%d (default=%d)\n",
             target_port, BDS_DEFAULT_PORT_V6);
+    fprintf(stderr, "[bds-ipv6fix] RakNet-only fix: acts on UDP (SOCK_DGRAM) sockets only,"
+            " NetherNet TCP signaling is left untouched\n");
+}
+
+/* The RakNet IPv6 socket is UDP. Anything else on the target port (the
+ * NetherNet TCP signaling socket in particular) must not be modified. */
+static int is_udp_socket(int fd, int port) {
+    int type = 0;
+    socklen_t typelen = sizeof(type);
+    if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &typelen) != 0) {
+        fprintf(stderr, "[bds-ipv6fix] WARNING: cannot read socket type of fd=%d port=%d: %s"
+                " - leaving it untouched\n", fd, port, strerror(errno));
+        return 0;
+    }
+    if (type != SOCK_DGRAM) {
+        fprintf(stderr, "[bds-ipv6fix] NOTE: fd=%d port=%d is not a UDP socket (NetherNet TCP signaling?)"
+                " - RakNet-only fix, leaving it untouched\n", fd, port);
+        return 0;
+    }
+    return 1;
 }
 
 int bind(int fd, const struct sockaddr *addr, socklen_t len) {
-    if (addr && addr->sa_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6)) {
+    if (addr && len >= (socklen_t)sizeof(struct sockaddr_in6) && addr->sa_family == AF_INET6) {
         int port = (int)ntohs(((const struct sockaddr_in6 *)addr)->sin6_port);
         if (port == target_port) {
             int saved = errno;
-            int cur = 0;
-            socklen_t curlen = sizeof(cur);
-            int already = (getsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &cur, &curlen) == 0 && cur);
-            errno = saved;
-            if (already) {
-                fprintf(stderr, "[bds-ipv6fix] NOTE: IPV6_V6ONLY already set on fd=%d port=%d"
-                        " - BDS has fixed this natively; patch is now redundant\n", fd, port);
+            if (is_udp_socket(fd, port)) {
+                int cur = 0;
+                socklen_t curlen = sizeof(cur);
+                int already = (getsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &cur, &curlen) == 0 && cur);
+                errno = saved;
+                if (already) {
+                    fprintf(stderr, "[bds-ipv6fix] NOTE: IPV6_V6ONLY already set on fd=%d port=%d"
+                            " - BDS has fixed this natively; patch is now redundant\n", fd, port);
+                } else {
+                    int one = 1;
+                    int rc = real_setsockopt
+                           ? real_setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one))
+                           : (int)syscall(SYS_setsockopt, fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
+                    if (rc == 0)
+                        fprintf(stderr, "[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=%d port=%d\n", fd, port);
+                    else
+                        fprintf(stderr, "[bds-ipv6fix] WARNING: setsockopt(IPV6_V6ONLY) failed on fd=%d port=%d: %s\n",
+                                fd, port, strerror(errno));
+                }
             } else {
-                int one = 1;
-                int rc = real_setsockopt
-                       ? real_setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one))
-                       : (int)syscall(SYS_setsockopt, fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
-                if (rc == 0)
-                    fprintf(stderr, "[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=%d port=%d\n", fd, port);
-                else
-                    fprintf(stderr, "[bds-ipv6fix] WARNING: setsockopt(IPV6_V6ONLY) failed on fd=%d port=%d: %s\n",
-                            fd, port, strerror(errno));
+                errno = saved;
             }
         }
     }
