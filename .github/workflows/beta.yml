@@ -47,15 +47,15 @@ jobs:
           if ./test; then echo "test must fail without the shim"; exit 1; fi
           LD_PRELOAD=$SHIM ./test >out.log 2>&1 || { cat out.log; exit 1; }
           cat out.log
-          grep -q "active on any port" out.log
+          grep -q "UDP only, on any port" out.log
           grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
           SERVER_PORT_V6=19133 LD_PRELOAD=$SHIM ./test >out.log 2>&1 || { cat out.log; exit 1; }
           cat out.log
-          grep -q "active on port 19133" out.log
+          grep -q "UDP only, on port 19133" out.log
           grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
           if SERVER_PORT_V6=19132 LD_PRELOAD=$SHIM ./test >out.log 2>&1; then cat out.log; echo "the shim must ignore other ports"; exit 1; fi
           cat out.log
-          grep -q "active on port 19132" out.log
+          grep -q "UDP only, on port 19132" out.log
           grep -q "FAIL: IPv6 bind: Address already in use" out.log
           SERVER_PORT_V6=abc LD_PRELOAD=$SHIM ./test >out.log 2>&1 || { cat out.log; exit 1; }
           cat out.log

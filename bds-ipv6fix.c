@@ -56,10 +56,11 @@ static void bds_ipv6fix_init(void) {
     const char *env = getenv("SERVER_PORT_V6");
     only_port = env ? parse_port(env) : 0;
     if (only_port)
-        fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active on port %d (SERVER_PORT_V6)\n", only_port);
+        fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active: RakNet fix, UDP only,"
+                " on port %d (SERVER_PORT_V6)\n", only_port);
     else
-        fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active on any port (SERVER_PORT_V6 %s)\n",
-                env ? "invalid" : "not set");
+        fprintf(stderr, "[bds-ipv6fix] " BDS_IPV6FIX_VERSION " active: RakNet fix, UDP only,"
+                " on any port (SERVER_PORT_V6 %s)\n", env ? "invalid" : "not set");
 }
 
 /* UDP only: the NetherNet TCP listener must stay dual-stack. */
@@ -87,7 +88,7 @@ int bind(int fd, const struct sockaddr *addr, socklen_t len) {
         if (!failed) {
             if (syscall(SYS_bind, fd, addr, len) == 0) {
                 fprintf(stderr, "[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=%d port=%d"
-                        " (bind collided with an IPv4 socket)\n", fd, port);
+                        " (UDP bind collided with an IPv4 socket)\n", fd, port);
                 errno = saved;
                 return 0;
             }

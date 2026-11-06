@@ -2,10 +2,12 @@
 
 LD_PRELOAD shim for [Minecraft Bedrock Dedicated Server](https://github.com/itzg/docker-minecraft-bedrock-server) that fixes a known BDS RakNet limitation where IPv4 and IPv6 cannot be configured on the same port. Only needed with `transport=raknet`; not needed with [NetherNet](#nethernet) (the latest Minecraft Bedrock default!).
 
+The shim acts on UDP sockets only. It never touches TCP.
+
 When the fix is active and working, you will see a line like this in your server log:
 
 ```
-[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=... port=... (bind collided with an IPv4 socket)
+[bds-ipv6fix] Fixing IPv6: IPV6_V6ONLY=1 set on fd=... port=... (UDP bind collided with an IPv4 socket)
 ```
 
 The shim is safe to leave in place across BDS upgrades - it will not interfere with the server if not needed.
@@ -16,9 +18,9 @@ At startup the shim reads `SERVER_PORT_V6` from the environment:
 
 | `SERVER_PORT_V6` | Shim acts on | Startup line |
 |---|---|---|
-| valid port | that port only | `active on port <port> (SERVER_PORT_V6)` |
-| not set | any port | `active on any port (SERVER_PORT_V6 not set)` |
-| invalid | any port | `active on any port (SERVER_PORT_V6 invalid)` |
+| valid port | that port only | `active: RakNet fix, UDP only, on port <port> (SERVER_PORT_V6)` |
+| not set | any port | `active: RakNet fix, UDP only, on any port (SERVER_PORT_V6 not set)` |
+| invalid | any port | `active: RakNet fix, UDP only, on any port (SERVER_PORT_V6 invalid)` |
 
 Every `bind()` goes to the kernel first. What follows depends on the result:
 
