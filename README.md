@@ -1,6 +1,6 @@
 # bds-ipv6fix
 
-LD_PRELOAD shim for [Minecraft Bedrock Dedicated Server](https://github.com/itzg/docker-minecraft-bedrock-server) that fixes a known BDS RakNet limitation where IPv4 and IPv6 cannot be configured on the same port. Only needed with `transport=raknet`; not needed with [NetherNet](#nethernet).
+LD_PRELOAD shim for [Minecraft Bedrock Dedicated Server](https://github.com/itzg/docker-minecraft-bedrock-server) that fixes a known BDS RakNet limitation where IPv4 and IPv6 cannot be configured on the same port. Only needed with `transport=raknet`; not needed with [NetherNet](#nethernet) (the latest Minecraft Bedrock default!).
 
 When the fix is active and working, you will see a line like this in your server log:
 
