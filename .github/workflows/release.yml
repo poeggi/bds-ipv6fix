@@ -38,47 +38,59 @@ jobs:
       - name: Test amd64
         run: |
           gcc -O2 -o test test.c
+          SHIM=$PWD/bds-ipv6fix_linux_x86_64.so
           if ./test; then echo "test must fail without the shim"; exit 1; fi
-          LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test >out.log 2>&1
+          LD_PRELOAD=$SHIM ./test >out.log 2>&1 || { cat out.log; exit 1; }
           cat out.log
+          grep -q "active on any port" out.log
           grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
-          LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test native-fix >out.log 2>&1
+          SERVER_PORT_V6=19133 LD_PRELOAD=$SHIM ./test >out.log 2>&1 || { cat out.log; exit 1; }
           cat out.log
-          grep -q "patch is now redundant" out.log
-          ./test nethernet
-          LD_PRELOAD=$PWD/bds-ipv6fix_linux_x86_64.so ./test nethernet >out.log 2>&1
-          cat out.log
-          grep -q "RakNet-only fix, leaving it untouched" out.log
-          grep -q "PASS: dual-stack TCP socket" out.log
+          grep -q "active on port 19133" out.log
+          grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
+          if SERVER_PORT_V6=19132 LD_PRELOAD=$SHIM ./test; then echo "the shim must ignore other ports"; exit 1; fi
+          for c in lone v6-holder v6only tcp; do
+            ./test $c
+            LD_PRELOAD=$SHIM ./test $c >out.log 2>&1 || { cat out.log; exit 1; }
+            cat out.log
+            grep -q "PASS" out.log
+            if [ "$(grep -c "bds-ipv6fix" out.log)" != 1 ]; then echo "the shim must log only its startup line in case $c"; exit 1; fi
+          done
 
       - name: Test arm64 (qemu)
         run: |
           aarch64-linux-gnu-gcc -O2 -o test-aarch64 test.c
-          if qemu-aarch64 -L /usr/aarch64-linux-gnu ./test-aarch64; then echo "test must fail without the shim"; exit 1; fi
-          qemu-aarch64 -L /usr/aarch64-linux-gnu -E LD_PRELOAD=$PWD/bds-ipv6fix_linux_aarch64.so ./test-aarch64 >out.log 2>&1
+          QEMU="qemu-aarch64 -L /usr/aarch64-linux-gnu"
+          SHIM=$PWD/bds-ipv6fix_linux_aarch64.so
+          if $QEMU ./test-aarch64; then echo "test must fail without the shim"; exit 1; fi
+          $QEMU -E LD_PRELOAD=$SHIM ./test-aarch64 >out.log 2>&1 || { cat out.log; exit 1; }
           cat out.log
           grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
-          qemu-aarch64 -L /usr/aarch64-linux-gnu -E LD_PRELOAD=$PWD/bds-ipv6fix_linux_aarch64.so ./test-aarch64 nethernet >out.log 2>&1
-          cat out.log
-          grep -q "RakNet-only fix, leaving it untouched" out.log
-          grep -q "PASS: dual-stack TCP socket" out.log
+          for c in lone v6-holder v6only tcp; do
+            $QEMU -E LD_PRELOAD=$SHIM ./test-aarch64 $c >out.log 2>&1 || { cat out.log; exit 1; }
+            cat out.log
+            grep -q "PASS" out.log
+            if [ "$(grep -c "bds-ipv6fix" out.log)" != 1 ]; then echo "the shim must log only its startup line in case $c"; exit 1; fi
+          done
 
-      - name: Test amd64 on Debian 12 (glibc 2.36)
+      - name: Test amd64 on Debian 12 (glibc 2.36) and on current Debian
         run: |
-          docker run --rm --network host -v "$PWD:/w:ro" -w /tmp debian:12 sh -ec '
-            apt-get update -qq >/dev/null && apt-get install -y -qq gcc libc6-dev >/dev/null
-            ldd --version | head -1
-            gcc -O2 -o test-old /w/test.c
-            if ./test-old; then echo "test must fail without the shim"; exit 1; fi
-            LD_PRELOAD=/w/bds-ipv6fix_linux_x86_64.so ./test-old >udp.log 2>&1 || { cat udp.log; exit 1; }
-            cat udp.log
-            grep -q "Fixing IPv6: IPV6_V6ONLY=1" udp.log
-            LD_PRELOAD=/w/bds-ipv6fix_linux_x86_64.so ./test-old native-fix >native.log 2>&1 || { cat native.log; exit 1; }
-            cat native.log
-            grep -q "patch is now redundant" native.log
-            LD_PRELOAD=/w/bds-ipv6fix_linux_x86_64.so ./test-old nethernet >tcp.log 2>&1 || { cat tcp.log; exit 1; }
-            cat tcp.log
-            grep -q "RakNet-only fix, leaving it untouched" tcp.log'
+          for img in debian:12 debian; do
+            docker run --rm --network host -v "$PWD:/w:ro" -w /tmp $img sh -ec '
+              apt-get update -qq >/dev/null && apt-get install -y -qq gcc libc6-dev >/dev/null
+              ldd --version | head -1
+              SHIM=/w/bds-ipv6fix_linux_x86_64.so
+              gcc -O2 -o test-old /w/test.c
+              if ./test-old; then echo "test must fail without the shim"; exit 1; fi
+              LD_PRELOAD=$SHIM ./test-old >out.log 2>&1 || { cat out.log; exit 1; }
+              cat out.log
+              grep -q "Fixing IPv6: IPV6_V6ONLY=1" out.log
+              for c in lone v6-holder v6only tcp; do
+                LD_PRELOAD=$SHIM ./test-old $c >out.log 2>&1 || { cat out.log; exit 1; }
+                cat out.log
+                if [ "$(grep -c "bds-ipv6fix" out.log)" != 1 ]; then echo "the shim must log only its startup line in case $c"; exit 1; fi
+              done'
+          done
 
       - name: Create release
         uses: softprops/action-gh-release@v2
