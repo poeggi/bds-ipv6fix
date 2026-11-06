@@ -11,8 +11,8 @@
  * more. That succeeds only if an IPv4 socket holds the port; otherwise the
  * shim puts the option back and returns the original error.
  *
- * With SERVER_PORT_V6 set in the environment the shim acts on that port
- * only, otherwise on any port.
+ * With SERVER_PORT_V6 set to a valid port in the environment the shim acts
+ * on that port only, otherwise on any port.
  *
  * Linux refuses IPV6_V6ONLY on a bound socket. A failed bind leaves the
  * socket unbound, so the option can still be set then. The shim replaces the

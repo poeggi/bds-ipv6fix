@@ -1,7 +1,6 @@
 /*
- * CI test for bds-ipv6fix. Each case binds a dual-stack IPv6 socket to a
- * port that another socket may hold, then checks the bind result and
- * IPV6_V6ONLY.
+ * CI test for bds-ipv6fix. Each case binds an IPv6 socket to a port that
+ * another socket may hold, then checks the bind result and IPV6_V6ONLY.
  *
  * Without an argument the holder is an IPv4 UDP socket, as in BDS RakNet
  * with equal ports: that fails without the shim (exit 1) and passes with it.
