@@ -107,6 +107,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: beta-${{ steps.ts.outputs.value }}
+          target_commitish: ${{ github.sha }}
           name: Beta ${{ steps.ts.outputs.value }}
           prerelease: true
           body: |
